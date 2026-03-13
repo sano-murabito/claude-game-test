@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ブロック崩し</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: #eee;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 16px;
+      letter-spacing: 4px;
+      color: #e94560;
+      text-shadow: 0 0 20px #e94560aa;
+    }
+
+    #ui {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 12px;
+      font-size: 1.1rem;
+    }
+
+    #ui span {
+      color: #a8dadc;
+    }
+
+    #ui strong {
+      color: #fff;
+    }
+
+    canvas {
+      border: 2px solid #e94560;
+      border-radius: 4px;
+      box-shadow: 0 0 30px #e9456044;
+      display: block;
+      background: #16213e;
+    }
+
+    #message {
+      margin-top: 16px;
+      font-size: 1.3rem;
+      min-height: 1.6em;
+      color: #ffd166;
+      text-shadow: 0 0 10px #ffd16688;
+      letter-spacing: 2px;
+    }
+
+    #startBtn {
+      margin-top: 14px;
+      padding: 10px 36px;
+      font-size: 1rem;
+      background: #e94560;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      letter-spacing: 2px;
+      box-shadow: 0 0 16px #e9456066;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    #startBtn:hover {
+      background: #c73652;
+      box-shadow: 0 0 24px #e94560aa;
+    }
+
+    #controls {
+      margin-top: 14px;
+      font-size: 0.85rem;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <h1>BREAKOUT</h1>
+  <div id="ui">
+    <div><span>スコア: </span><strong id="scoreDisplay">0</strong></div>
+    <div><span>ライフ: </span><strong id="livesDisplay">3</strong></div>
+    <div><span>レベル: </span><strong id="levelDisplay">1</strong></div>
+  </div>
+  <canvas id="gameCanvas" width="480" height="400"></canvas>
+  <div id="message">スタートボタンを押してください</div>
+  <button id="startBtn">スタート</button>
+  <div id="controls">← → キー または マウスでパドルを操作</div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const livesDisplay = document.getElementById('livesDisplay');
+    const levelDisplay = document.getElementById('levelDisplay');
+    const messageEl = document.getElementById('message');
+    const startBtn = document.getElementById('startBtn');
+
+    // --- Game constants ---
+    const PADDLE_H = 12;
+    const PADDLE_W = 80;
+    const BALL_R = 8;
+    const BRICK_ROWS = 5;
+    const BRICK_COLS = 10;
+    const BRICK_W = 42;
+    const BRICK_H = 16;
+    const BRICK_PAD = 4;
+    const BRICK_OFFSET_TOP = 40;
+    const BRICK_OFFSET_LEFT = 15;
+
+    // Brick colors per row
+    const ROW_COLORS = [
+      '#e94560', // red
+      '#f4a261', // orange
+      '#ffd166', // yellow
+      '#06d6a0', // green
+      '#118ab2', // blue
+    ];
+
+    // --- Game state ---
+    let score, lives, level;
+    let paddleX;
+    let ball;
+    let bricks;
+    let running = false;
+    let animId = null;
+    let rightPressed = false;
+    let leftPressed = false;
+    let mouseX = canvas.width / 2;
+
+    function initGame(newLevel) {
+      level = newLevel || 1;
+      score = score || 0;
+      lives = lives !== undefined ? lives : 3;
+      paddleX = (canvas.width - PADDLE_W) / 2;
+
+      const speed = 3.5 + (level - 1) * 0.6;
+      ball = {
+        x: canvas.width / 2,
+        y: canvas.height - 60,
+        dx: speed * (Math.random() > 0.5 ? 1 : -1),
+        dy: -speed,
+      };
+
+      bricks = [];
+      for (let r = 0; r < BRICK_ROWS; r++) {
+        bricks[r] = [];
+        for (let c = 0; c < BRICK_COLS; c++) {
+          bricks[r][c] = { alive: true };
+        }
+      }
+    }
+
+    function resetBall() {
+      const speed = 3.5 + (level - 1) * 0.6;
+      ball = {
+        x: canvas.width / 2,
+        y: canvas.height - 60,
+        dx: speed * (Math.random() > 0.5 ? 1 : -1),
+        dy: -speed,
+      };
+    }
+
+    // --- Drawing ---
+    function drawPaddle() {
+      const grad = ctx.createLinearGradient(paddleX, 0, paddleX + PADDLE_W, 0);
+      grad.addColorStop(0, '#a8dadc');
+      grad.addColorStop(1, '#457b9d');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(paddleX, canvas.height - PADDLE_H - 8, PADDLE_W, PADDLE_H, 6);
+      ctx.fill();
+    }
+
+    function drawBall() {
+      const grad = ctx.createRadialGradient(ball.x - 2, ball.y - 2, 1, ball.x, ball.y, BALL_R);
+      grad.addColorStop(0, '#fff');
+      grad.addColorStop(1, '#e94560');
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      // glow
+      ctx.shadowColor = '#e94560';
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawBricks() {
+      for (let r = 0; r < BRICK_ROWS; r++) {
+        for (let c = 0; c < BRICK_COLS; c++) {
+          if (!bricks[r][c].alive) continue;
+          const bx = BRICK_OFFSET_LEFT + c * (BRICK_W + BRICK_PAD);
+          const by = BRICK_OFFSET_TOP + r * (BRICK_H + BRICK_PAD);
+          ctx.fillStyle = ROW_COLORS[r];
+          ctx.beginPath();
+          ctx.roundRect(bx, by, BRICK_W, BRICK_H, 3);
+          ctx.fill();
+          // highlight
+          ctx.fillStyle = 'rgba(255,255,255,0.18)';
+          ctx.beginPath();
+          ctx.roundRect(bx + 2, by + 2, BRICK_W - 4, 4, 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBricks();
+      drawPaddle();
+      drawBall();
+    }
+
+    // --- Collision ---
+    function brickCollision() {
+      for (let r = 0; r < BRICK_ROWS; r++) {
+        for (let c = 0; c < BRICK_COLS; c++) {
+          const b = bricks[r][c];
+          if (!b.alive) continue;
+          const bx = BRICK_OFFSET_LEFT + c * (BRICK_W + BRICK_PAD);
+          const by = BRICK_OFFSET_TOP + r * (BRICK_H + BRICK_PAD);
+
+          if (
+            ball.x + BALL_R > bx &&
+            ball.x - BALL_R < bx + BRICK_W &&
+            ball.y + BALL_R > by &&
+            ball.y - BALL_R < by + BRICK_H
+          ) {
+            b.alive = false;
+            score += (BRICK_ROWS - r) * 10;
+            scoreDisplay.textContent = score;
+
+            // Determine bounce direction
+            const overlapLeft = ball.x + BALL_R - bx;
+            const overlapRight = bx + BRICK_W - (ball.x - BALL_R);
+            const overlapTop = ball.y + BALL_R - by;
+            const overlapBottom = by + BRICK_H - (ball.y - BALL_R);
+            const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+            if (minOverlap === overlapTop || minOverlap === overlapBottom) {
+              ball.dy *= -1;
+            } else {
+              ball.dx *= -1;
+            }
+            return;
+          }
+        }
+      }
+    }
+
+    function allBricksCleared() {
+      return bricks.every(row => row.every(b => !b.alive));
+    }
+
+    // --- Update ---
+    function update() {
+      // Move paddle via keyboard
+      const paddleSpeed = 6;
+      if (rightPressed && paddleX < canvas.width - PADDLE_W) paddleX += paddleSpeed;
+      if (leftPressed && paddleX > 0) paddleX -= paddleSpeed;
+
+      // Move paddle via mouse
+      const targetX = mouseX - PADDLE_W / 2;
+      paddleX = Math.max(0, Math.min(canvas.width - PADDLE_W, targetX));
+
+      // Move ball
+      ball.x += ball.dx;
+      ball.y += ball.dy;
+
+      // Wall collision
+      if (ball.x + BALL_R > canvas.width || ball.x - BALL_R < 0) ball.dx *= -1;
+      if (ball.y - BALL_R < 0) ball.dy *= -1;
+
+      // Paddle collision
+      const py = canvas.height - PADDLE_H - 8;
+      if (
+        ball.dy > 0 &&
+        ball.y + BALL_R >= py &&
+        ball.y + BALL_R <= py + PADDLE_H + 4 &&
+        ball.x > paddleX - 4 &&
+        ball.x < paddleX + PADDLE_W + 4
+      ) {
+        // Angle based on hit position
+        const hitPos = (ball.x - paddleX) / PADDLE_W; // 0..1
+        const angle = (hitPos - 0.5) * Math.PI * 0.7; // -63..63 deg
+        const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+        ball.dx = speed * Math.sin(angle);
+        ball.dy = -Math.abs(speed * Math.cos(angle));
+      }
+
+      // Bottom — lose life
+      if (ball.y - BALL_R > canvas.height) {
+        lives--;
+        livesDisplay.textContent = lives;
+        if (lives <= 0) {
+          gameOver();
+          return;
+        }
+        resetBall();
+      }
+
+      // Brick collision
+      brickCollision();
+
+      // Level clear
+      if (allBricksCleared()) {
+        levelClear();
+      }
+    }
+
+    // --- Game loop ---
+    function loop() {
+      update();
+      draw();
+      animId = requestAnimationFrame(loop);
+    }
+
+    function startGame() {
+      if (animId) cancelAnimationFrame(animId);
+      score = 0;
+      lives = 3;
+      scoreDisplay.textContent = 0;
+      livesDisplay.textContent = 3;
+      initGame(1);
+      levelDisplay.textContent = 1;
+      messageEl.textContent = '';
+      startBtn.textContent = 'リスタート';
+      running = true;
+      loop();
+    }
+
+    function gameOver() {
+      cancelAnimationFrame(animId);
+      animId = null;
+      running = false;
+      messageEl.textContent = `ゲームオーバー！ スコア: ${score}`;
+      draw();
+    }
+
+    function levelClear() {
+      cancelAnimationFrame(animId);
+      animId = null;
+      running = false;
+      level++;
+      levelDisplay.textContent = level;
+      messageEl.textContent = `レベル ${level - 1} クリア！ 次のレベルへ…`;
+      setTimeout(() => {
+        initGame(level);
+        messageEl.textContent = '';
+        running = true;
+        loop();
+      }, 1500);
+    }
+
+    // --- Input ---
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') rightPressed = true;
+      if (e.key === 'ArrowLeft') leftPressed = true;
+    });
+    document.addEventListener('keyup', e => {
+      if (e.key === 'ArrowRight') rightPressed = false;
+      if (e.key === 'ArrowLeft') leftPressed = false;
+    });
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+    });
+
+    startBtn.addEventListener('click', startGame);
+
+    // Initial draw
+    initGame(1);
+    draw();
+  </script>
+</body>
+</html>
