@@ -51,6 +51,8 @@
       box-shadow: 0 0 30px #e9456044;
       display: block;
       background: #16213e;
+      max-width: 100%;
+      touch-action: none;
     }
 
     #message {
@@ -85,6 +87,7 @@
       margin-top: 14px;
       font-size: 0.85rem;
       color: #888;
+      text-align: center;
     }
   </style>
 </head>
@@ -98,7 +101,7 @@
   <canvas id="gameCanvas" width="480" height="400"></canvas>
   <div id="message">スタートボタンを押してください</div>
   <button id="startBtn">スタート</button>
-  <div id="controls">← → キー または マウスでパドルを操作</div>
+  <div id="controls">← → キー / マウス移動 / スワイプでパドルを操作</div>
 
   <script>
     const canvas = document.getElementById('gameCanvas');
@@ -379,6 +382,35 @@
       const rect = canvas.getBoundingClientRect();
       mouseX = e.clientX - rect.left;
     });
+
+    // --- Touch input (swipe to move paddle) ---
+    let touchStartX = null;
+    let touchPaddleStartX = null;
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      touchStartX = e.touches[0].clientX;
+      touchPaddleStartX = paddleX;
+      // Also allow tapping to start via startBtn on mobile
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (touchStartX === null) return;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const dx = (e.touches[0].clientX - touchStartX) * scaleX;
+      paddleX = Math.max(0, Math.min(canvas.width - PADDLE_W, touchPaddleStartX + dx));
+      mouseX = paddleX + PADDLE_W / 2; // sync mouseX so update() doesn't override
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      touchStartX = null;
+      touchPaddleStartX = null;
+    }, { passive: false });
 
     startBtn.addEventListener('click', startGame);
 
