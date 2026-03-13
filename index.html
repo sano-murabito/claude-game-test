@@ -328,7 +328,7 @@
     function loop() {
       update();
       draw();
-      animId = requestAnimationFrame(loop);
+      if (running) animId = requestAnimationFrame(loop);
     }
 
     function startGame() {
